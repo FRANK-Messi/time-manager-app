@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>个人时间管理系统</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- ECharts CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <!-- SheetJS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        /* 自定义样式 */
+        .time-grid-cell {
+            min-height: 80px;
+            border: 1px solid #e5e7eb;
+            cursor: pointer;
+        }
+        .time-grid-cell:hover {
+            background-color: #f3f4f6;
+        }
+        .todo-item {
+            border-radius: 4px;
+            padding: 4px 8px;
+            margin-bottom: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .todo-item:hover {
+            opacity: 0.8;
+        }
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 500px;
+        }
+        .hidden {
+            display: none;
+        }
+        /* 分类颜色 */
+        .category-homework { background-color: #FFC107; }
+        .category-course { background-color: #2196F3; }
+        .category-entertainment { background-color: #9C27B0; }
+        .category-affair { background-color: #607D8B; }
+        .category-sports { background-color: #FF9800; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold text-center mb-8 text-gray-800">个人时间管理系统</h1>
+        
+        <!-- 周视图日期选择模块 -->
+        <div class="flex justify-between items-center mb-6 bg-white p-4 rounded-lg shadow">
+            <button id="prevWeek" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">上一周</button>
+            <div class="flex items-center space-x-4">
+                <input type="date" id="datePicker" class="px-4 py-2 border rounded" min="2026-02-26" max="2100-12-31">
+                <span id="weekRange" class="font-medium"></span>
+            </div>
+            <button id="nextWeek" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">下一周</button>
+        </div>
+        
+        <!-- 主内容区 -->
+        <div class="flex flex-col lg:flex-row gap-6">
+            <!-- 周日程表 -->
+            <div class="flex-1 bg-white rounded-lg shadow overflow-x-auto">
+                <div class="grid grid-cols-8 min-w-max">
+                    <!-- 时间轴 -->
+                    <div class="col-span-1 bg-gray-100 border-r border-gray-200">
+                        <div class="h-12 flex items-center justify-center font-medium border-b border-gray-200">时间</div>
+                        <!-- 小时行 -->
+                        <div id="timeAxis"></div>
+                    </div>
+                    <!-- 星期列 -->
+                    <div class="col-span-7">
+                        <div class="grid grid-cols-7">
+                            <div id="weekDays"></div>
+                        </div>
+                        <!-- 时间格子 -->
+                        <div id="timeGrid" class="grid grid-cols-7"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 统计与操作区 -->
+            <div class="lg:w-80 space-y-6">
+                <!-- 日统计 -->
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <h3 class="text-lg font-medium mb-4">今日时间分配</h3>
+                    <div id="dayChart" class="h-64"></div>
+                </div>
+                <!-- 周统计 -->
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <h3 class="text-lg font-medium mb-4">本周时间分配</h3>
+                    <div id="weekChart" class="h-64"></div>
+                </div>
+                <!-- 月统计 -->
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <h3 class="text-lg font-medium mb-4">本月时间分配</h3>
+                    <div id="monthChart" class="h-64"></div>
+                </div>
+                <!-- 操作按钮 -->
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <h3 class="text-lg font-medium mb-4">操作</h3>
+                    <div class="space-y-3">
+                        <button id="importBtn" class="w-full px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">导入文件</button>
+                        <button id="exportDayChart" class="w-full px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600">导出日图表</button>
+                        <button id="exportWeekChart" class="w-full px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600">导出周图表</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 待办事项模态框 -->
+    <div id="todoModal" class="modal hidden">
+        <div class="modal-content">
+            <h2 id="modalTitle" class="text-xl font-bold mb-4">添加待办事项</h2>
+            <form id="todoForm">
+                <input type="hidden" id="todoId">
+                <input type="hidden" id="todoWeekIndex">
+                <input type="hidden" id="todoHour">
+                <input type="hidden" id="todoStartTime">
+                <input type="hidden" id="todoEndTime">
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">事项名称</label>
+                    <input type="text" id="todoTitle" class="w-full px-3 py-2 border rounded" required>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">分类</label>
+                    <select id="todoCategory" class="w-full px-3 py-2 border rounded" required>
+                        <option value="homework">作业类</option>
+                        <option value="course">课程类</option>
+                        <option value="entertainment">娱乐类</option>
+                        <option value="affair">事物类</option>
+                        <option value="sports">运动类</option>
+                    </select>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">备注</label>
+                    <textarea id="todoRemark" class="w-full px-3 py-2 border rounded" rows="2"></textarea>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
+                    <select id="todoStatus" class="w-full px-3 py-2 border rounded" required>
+                        <option value="uncompleted">未完成</option>
+                        <option value="completed">已完成</option>
+                        <option value="delayed">延期</option>
+                    </select>
+                </div>
+                
+                <div class="flex justify-end space-x-3">
+                    <button type="button" id="deleteTodo" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 hidden">删除</button>
+                    <button type="button" id="cancelTodo" class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400">取消</button>
+                    <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- 文件导入模态框 -->
+    <div id="importModal" class="modal hidden">
+        <div class="modal-content">
+            <h2 class="text-xl font-bold mb-4">导入文件</h2>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">选择文件</label>
+                <input type="file" id="fileInput" class="w-full" accept=".xlsx,.xls,.csv">
+            </div>
+            <div class="flex justify-end space-x-3">
+                <button type="button" id="cancelImport" class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400">取消</button>
+                <button type="button" id="confirmImport" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">导入</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 全局变量
+        let currentDate = new Date('2026-02-26'); // 默认日期
+        let todos = JSON.parse(localStorage.getItem('todos')) || [];
+        
+        // 分类配置
+        const categories = {
+            homework: { name: '作业类', color: '#FFC107' },
+            course: { name: '课程类', color: '#2196F3' },
+            entertainment: { name: '娱乐类', color: '#9C27B0' },
+            affair: { name: '事物类', color: '#607D8B' },
+            sports: { name: '运动类', color: '#FF9800' }
+        };
+        
+        // 初始化
+        function init() {
+            updateWeekRange();
+            renderTimeAxis();
+            renderWeekDays();
+            renderTimeGrid();
+            updateCharts();
+            setupEventListeners();
+        }
+        
+        // 更新周范围显示
+        function updateWeekRange() {
+            const startOfWeek = new Date(currentDate);
+            const day = startOfWeek.getDay();
+            const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1); // 调整到周一
+            startOfWeek.setDate(diff);
+            
+            const endOfWeek = new Date(startOfWeek);
+            endOfWeek.setDate(startOfWeek.getDate() + 6);
+            
+            const formatDate = (date) => {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            };
+            
+            document.getElementById('weekRange').textContent = `${formatDate(startOfWeek)} 至 ${formatDate(endOfWeek)}`;
+            document.getElementById('datePicker').value = formatDate(currentDate);
+        }
+        
+        // 渲染时间轴
+        function renderTimeAxis() {
+            const timeAxis = document.getElementById('timeAxis');
+            timeAxis.innerHTML = '';
+            
+            for (let hour = 0; hour < 24; hour++) {
+                const hourDiv = document.createElement('div');
+                hourDiv.className = 'h-24 flex items-center justify-center border-b border-gray-200';
+                hourDiv.textContent = `${String(hour).padStart(2, '0')}:00`;
+                timeAxis.appendChild(hourDiv);
+            }
+        }
+        
+        // 渲染星期列
+        function renderWeekDays() {
+            const weekDays = document.getElementById('weekDays');
+            weekDays.innerHTML = '';
+            
+            const dayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+            const startOfWeek = new Date(currentDate);
+            const day = startOfWeek.getDay();
+            const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1); // 调整到周一
+            startOfWeek.setDate(diff);
+            
+            for (let i = 0; i < 7; i++) {
+                const dayDiv = document.createElement('div');
+                dayDiv.className = 'h-12 flex flex-col items-center justify-center font-medium border-b border-r border-gray-200';
+                
+                const date = new Date(startOfWeek);
+                date.setDate(startOfWeek.getDate() + i);
+                
+                dayDiv.innerHTML = `
+                    <div>${dayNames[i]}</div>
+                    <div class="text-xs text-gray-500">${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}</div>
+                `;
+                weekDays.appendChild(dayDiv);
+            }
+        }
+        
+        // 渲染时间格子
+        function renderTimeGrid() {
+            const timeGrid = document.getElementById('timeGrid');
+            timeGrid.innerHTML = '';
+            
+            const startOfWeek = new Date(currentDate);
+            const day = startOfWeek.getDay();
+            const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1); // 调整到周一
+            startOfWeek.setDate(diff);
+            
+            // 为每天创建列
+            for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                const dayColumn = document.createElement('div');
+                dayColumn.className = 'border-r border-gray-200';
+                
+                // 为每小时创建格子
+                for (let hour = 0; hour < 24; hour++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'time-grid-cell border-b border-gray-200 relative';
+                    cell.dataset.weekIndex = dayIndex;
+                    cell.dataset.hour = hour;
+                    
+                    // 计算当前格子的日期
+                    const cellDate = new Date(startOfWeek);
+                    cellDate.setDate(startOfWeek.getDate() + dayIndex);
+                    const year = cellDate.getFullYear();
+                    const month = String(cellDate.getMonth() + 1).padStart(2, '0');
+                    const day = String(cellDate.getDate()).padStart(2, '0');
+                    cell.dataset.date = `${year}-${month}-${day}`;
+                    
+                    // 查找并显示该格子的待办事项
+                    const cellTodos = todos.filter(todo => {
+                        const todoDate = todo.startTime.split(' ')[0];
+                        return todoDate === cell.dataset.date && todo.hour === hour;
+                    });
+                    
+                    if (cellTodos.length > 0) {
+                        const todoContainer = document.createElement('div');
+                        todoContainer.className = 'p-1';
+                        
+                        cellTodos.forEach(todo => {
+                            const todoItem = document.createElement('div');
+                            todoItem.className = `todo-item category-${todo.category}`;
+                            todoItem.textContent = todo.title;
+                            todoItem.dataset.todoId = todo.id;
+                            
+                            // 添加待办事项点击事件
+                            todoItem.addEventListener('click', () => {
+                                openTodoModal('edit', todo);
+                            });
+                            
+                            todoContainer.appendChild(todoItem);
+                        });
+                        
+                        cell.appendChild(todoContainer);
+                    }
+                    
+                    // 添加格子点击事件
+                    cell.addEventListener('click', (e) => {
+                        // 如果点击的是待办事项，不触发格子点击
+                        if (e.target.classList.contains('todo-item')) {
+                            return;
+                        }
+                        openTodoModal('add', {
+                            weekIndex: parseInt(cell.dataset.weekIndex),
+                            hour: parseInt(cell.dataset.hour),
+                            date: cell.dataset.date
+                        });
+                    });
+                    
+                    dayColumn.appendChild(cell);
+                }
+                
+                timeGrid.appendChild(dayColumn);
+            }
+        }
+        
+        // 打开待办事项模态框
+        function openTodoModal(type, data) {
+            const modal = document.getElementById('todoModal');
+            const modalTitle = document.getElementById('modalTitle');
+            const deleteBtn = document.getElementById('deleteTodo');
+            
+            if (type === 'add') {
+                modalTitle.textContent = '添加待办事项';
+                deleteBtn.classList.add('hidden');
+                
+                // 重置表单
+                document.getElementById('todoForm').reset();
+                document.getElementById('todoId').value = '';
+                document.getElementById('todoWeekIndex').value = data.weekIndex;
+                document.getElementById('todoHour').value = data.hour;
+                
+                // 计算开始和结束时间
+                const startTime = `${data.date} ${String(data.hour).padStart(2, '0')}:00`;
+                const endHour = (data.hour + 1) % 24;
+                const endTime = `${data.date} ${String(endHour).padStart(2, '0')}:00`;
+                
+                document.getElementById('todoStartTime').value = startTime;
+                document.getElementById('todoEndTime').value = endTime;
+            } else if (type === 'edit') {
+                modalTitle.textContent = '编辑待办事项';
+                deleteBtn.classList.remove('hidden');
+                
+                // 填充表单数据
+                document.getElementById('todoId').value = data.id;
+                document.getElementById('todoTitle').value = data.title;
+                document.getElementById('todoCategory').value = data.category;
+                document.getElementById('todoRemark').value = data.remark || '';
+                document.getElementById('todoStatus').value = data.status;
+                document.getElementById('todoWeekIndex').value = data.weekIndex;
+                document.getElementById('todoHour').value = data.hour;
+                document.getElementById('todoStartTime').value = data.startTime;
+                document.getElementById('todoEndTime').value = data.endTime;
+            }
+            
+            modal.classList.remove('hidden');
+        }
+        
+        // 关闭待办事项模态框
+        function closeTodoModal() {
+            document.getElementById('todoModal').classList.add('hidden');
+        }
+        
+        // 保存待办事项
+        function saveTodo(e) {
+            e.preventDefault();
+            
+            const id = document.getElementById('todoId').value;
+            const title = document.getElementById('todoTitle').value;
+            const category = document.getElementById('todoCategory').value;
+            const weekIndex = parseInt(document.getElementById('todoWeekIndex').value);
+            const hour = parseInt(document.getElementById('todoHour').value);
+            const startTime = document.getElementById('todoStartTime').value;
+            const endTime = document.getElementById('todoEndTime').value;
+            const remark = document.getElementById('todoRemark').value;
+            const status = document.getElementById('todoStatus').value;
+            
+            if (id) {
+                // 编辑现有待办
+                const index = todos.findIndex(todo => todo.id === id);
+                if (index !== -1) {
+                    todos[index] = {
+                        ...todos[index],
+                        title,
+                        category,
+                        remark,
+                        status
+                    };
+                }
+            } else {
+                // 添加新待办
+                const newTodo = {
+                    id: Date.now().toString(),
+                    title,
+                    category,
+                    weekIndex,
+                    hour,
+                    startTime,
+                    endTime,
+                    remark,
+                    status
+                };
+                todos.push(newTodo);
+            }
+            
+            // 保存到localStorage
+            localStorage.setItem('todos', JSON.stringify(todos));
+            
+            // 刷新视图
+            renderTimeGrid();
+            updateCharts();
+            closeTodoModal();
+        }
+        
+        // 删除待办事项
+        function deleteTodo() {
+            const id = document.getElementById('todoId').value;
+            if (id) {
+                todos = todos.filter(todo => todo.id !== id);
+                localStorage.setItem('todos', JSON.stringify(todos));
+                renderTimeGrid();
+                updateCharts();
+                closeTodoModal();
+            }
+        }
+        
+        // 更新图表
+        function updateCharts() {
+            // 今日日期
+            const today = new Date();
+            const todayStr = today.toISOString().split('T')[0];
+            
+            // 本周开始日期
+            const startOfWeek = new Date(currentDate);
+            const day = startOfWeek.getDay();
+            const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1); // 调整到周一
+            startOfWeek.setDate(diff);
+            const weekStartStr = startOfWeek.toISOString().split('T')[0];
+            
+            // 本周结束日期
+            const endOfWeek = new Date(startOfWeek);
+            endOfWeek.setDate(startOfWeek.getDate() + 6);
+            const weekEndStr = endOfWeek.toISOString().split('T')[0];
+            
+            // 本月开始日期
+            const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+            const monthStartStr = startOfMonth.toISOString().split('T')[0];
+            
+            // 本月结束日期
+            const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+            const monthEndStr = endOfMonth.toISOString().split('T')[0];
+            
+            // 筛选今日待办
+            const todayTodos = todos.filter(todo => {
+                const todoDate = todo.startTime.split(' ')[0];
+                return todoDate === todayStr;
+            });
+            
+            // 筛选本周待办
+            const weekTodos = todos.filter(todo => {
+                const todoDate = todo.startTime.split(' ')[0];
+                return todoDate >= weekStartStr && todoDate <= weekEndStr;
+            });
+            
+            // 筛选本月待办
+            const monthTodos = todos.filter(todo => {
+                const todoDate = todo.startTime.split(' ')[0];
+                return todoDate >= monthStartStr && todoDate <= monthEndStr;
+            });
+            
+            // 计算分类统计
+            const calculateCategoryStats = (todoList) => {
+                const stats = {
+                    homework: 0,
+                    course: 0,
+                    entertainment: 0,
+                    affair: 0,
+                    sports: 0
+                };
+                
+                todoList.forEach(todo => {
+                    stats[todo.category]++;
+                });
+                
+                return stats;
+            };
+            
+            const dayStats = calculateCategoryStats(todayTodos);
+            const weekStats = calculateCategoryStats(weekTodos);
+            const monthStats = calculateCategoryStats(monthTodos);
+            
+            // 生成图表数据
+            const generateChartData = (stats) => {
+                return {
+                    categories: Object.keys(stats).map(key => categories[key].name),
+                    values: Object.values(stats),
+                    colors: Object.keys(stats).map(key => categories[key].color)
+                };
+            };
+            
+            const dayChartData = generateChartData(dayStats);
+            const weekChartData = generateChartData(weekStats);
+            const monthChartData = generateChartData(monthStats);
+            
+            // 渲染日图表
+            const dayChart = echarts.init(document.getElementById('dayChart'));
+            dayChart.setOption({
+                tooltip: {
+                    trigger: 'item'
+                },
+                legend: {
+                    orient: 'vertical',
+                    left: 'left'
+                },
+                series: [
+                    {
+                        name: '时间分配',
+                        type: 'pie',
+                        radius: '60%',
+                        data: dayChartData.categories.map((category, index) => ({
+                            value: dayChartData.values[index],
+                            name: category
+                        })),
+                        emphasis: {
+                            itemStyle: {
+                                shadowBlur: 10,
+                                shadowOffsetX: 0,
+                                shadowColor: 'rgba(0, 0, 0, 0.5)'
+                            }
+                        },
+                        itemStyle: {
+                            color: function(params) {
+                                return dayChartData.colors[params.dataIndex];
+                            }
+                        }
+                    }
+                ]
+            });
+            
+            // 渲染周图表
+            const weekChart = echarts.init(document.getElementById('weekChart'));
+            weekChart.setOption({
+                tooltip: {
+                    trigger: 'item'
+                },
+                legend: {
+                    orient: 'vertical',
+                    left: 'left'
+                },
+                series: [
+                    {
+                        name: '时间分配',
+                        type: 'pie',
+                        radius: '60%',
+                        data: weekChartData.categories.map((category, index) => ({
+                            value: weekChartData.values[index],
+                            name: category
+                        })),
+                        emphasis: {
+                            itemStyle: {
+                                shadowBlur: 10,
+                                shadowOffsetX: 0,
+                                shadowColor: 'rgba(0, 0, 0, 0.5)'
+                            }
+                        },
+                        itemStyle: {
+                            color: function(params) {
+                                return weekChartData.colors[params.dataIndex];
+                            }
+                        }
+                    }
+                ]
+            });
+            
+            // 渲染月图表
+            const monthChart = echarts.init(document.getElementById('monthChart'));
+            monthChart.setOption({
+                tooltip: {
+                    trigger: 'item'
+                },
+                legend: {
+                    orient: 'vertical',
+                    left: 'left'
+                },
+                series: [
+                    {
+                        name: '时间分配',
+                        type: 'pie',
+                        radius: '60%',
+                        data: monthChartData.categories.map((category, index) => ({
+                            value: monthChartData.values[index],
+                            name: category
+                        })),
+                        emphasis: {
+                            itemStyle: {
+                                shadowBlur: 10,
+                                shadowOffsetX: 0,
+                                shadowColor: 'rgba(0, 0, 0, 0.5)'
+                            }
+                        },
+                        itemStyle: {
+                            color: function(params) {
+                                return monthChartData.colors[params.dataIndex];
+                            }
+                        }
+                    }
+                ]
+            });
+            
+            // 响应式调整
+            window.addEventListener('resize', () => {
+                dayChart.resize();
+                weekChart.resize();
+                monthChart.resize();
+            });
+        }
+        
+        // 设置事件监听器
+        function setupEventListeners() {
+            // 上一周/下一周按钮
+            document.getElementById('prevWeek').addEventListener('click', () => {
+                currentDate.setDate(currentDate.getDate() - 7);
+                updateWeekRange();
+                renderWeekDays();
+                renderTimeGrid();
+                updateCharts();
+            });
+            
+            document.getElementById('nextWeek').addEventListener('click', () => {
+                currentDate.setDate(currentDate.getDate() + 7);
+                updateWeekRange();
+                renderWeekDays();
+                renderTimeGrid();
+                updateCharts();
+            });
+            
+            // 日期选择器
+            document.getElementById('datePicker').addEventListener('change', (e) => {
+                currentDate = new Date(e.target.value);
+                updateWeekRange();
+                renderWeekDays();
+                renderTimeGrid();
+                updateCharts();
+            });
+            
+            // 待办事项模态框
+            document.getElementById('cancelTodo').addEventListener('click', closeTodoModal);
+            document.getElementById('todoForm').addEventListener('submit', saveTodo);
+            document.getElementById('deleteTodo').addEventListener('click', deleteTodo);
+            
+            // 点击模态框外部关闭
+            document.getElementById('todoModal').addEventListener('click', (e) => {
+                if (e.target === document.getElementById('todoModal')) {
+                    closeTodoModal();
+                }
+            });
+            
+            // 文件导入
+            document.getElementById('importBtn').addEventListener('click', () => {
+                document.getElementById('importModal').classList.remove('hidden');
+            });
+            
+            document.getElementById('cancelImport').addEventListener('click', () => {
+                document.getElementById('importModal').classList.add('hidden');
+            });
+            
+            document.getElementById('confirmImport').addEventListener('click', handleFileImport);
+            
+            // 点击导入模态框外部关闭
+            document.getElementById('importModal').addEventListener('click', (e) => {
+                if (e.target === document.getElementById('importModal')) {
+                    document.getElementById('importModal').classList.add('hidden');
+                }
+            });
+            
+            // 图表导出
+            document.getElementById('exportDayChart').addEventListener('click', () => {
+                const chart = echarts.init(document.getElementById('dayChart'));
+                const url = chart.getDataURL({ type: 'png', pixelRatio: 2 });
+                downloadImage(url, 'day-chart.png');
+            });
+            
+            document.getElementById('exportWeekChart').addEventListener('click', () => {
+                const chart = echarts.init(document.getElementById('weekChart'));
+                const url = chart.getDataURL({ type: 'png', pixelRatio: 2 });
+                downloadImage(url, 'week-chart.png');
+            });
+        }
+        
+        // 处理文件导入
+        function handleFileImport() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('请选择要导入的文件');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    
+                    // 获取第一个工作表
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    
+                    // 转换为JSON
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                    
+                    // 解析导入的数据
+                    parseImportedData(jsonData);
+                    
+                    document.getElementById('importModal').classList.add('hidden');
+                    alert('文件导入成功');
+                } catch (error) {
+                    alert('文件解析失败：' + error.message);
+                }
+            };
+            
+            reader.readAsArrayBuffer(file);
+        }
+        
+        // 解析导入的数据
+        function parseImportedData(data) {
+            // 简单的解析逻辑，根据常见的课表/作业表格式
+            data.forEach(item => {
+                // 假设数据格式包含：星期、时间、课程名称/作业名称、分类
+                // 这里需要根据实际导入的文件格式进行调整
+                // 示例：item.星期, item.时间, item.课程, item.分类
+                
+                // 这里仅作示例，实际解析逻辑需要根据具体文件格式调整
+                const todo = {
+                    id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+                    title: item.课程 || item.作业 || item.事项 || '未命名',
+                    category: item.分类 || 'affair',
+                    weekIndex: parseInt(item.星期) - 1 || 0, // 假设星期从1开始
+                    hour: parseInt(item.时间) || 0, // 假设时间是小时数
+                    startTime: `${new Date().toISOString().split('T')[0]} ${String(parseInt(item.时间) || 0).padStart(2, '0')}:00`,
+                    endTime: `${new Date().toISOString().split('T')[0]} ${String((parseInt(item.时间) || 0) + 1).padStart(2, '0')}:00`,
+                    remark: item.备注 || '',
+                    status: 'uncompleted'
+                };
+                
+                todos.push(todo);
+            });
+            
+            // 保存到localStorage
+            localStorage.setItem('todos', JSON.stringify(todos));
+            
+            // 刷新视图
+            renderTimeGrid();
+            updateCharts();
+        }
+        
+        // 下载图片
+        function downloadImage(url, filename) {
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            link.click();
+        }
+        
+        // 初始化应用
+        init();
+    </script>
+</body>
+</html>
